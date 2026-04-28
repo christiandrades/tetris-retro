@@ -1,0 +1,26 @@
+{
+  "name": "Tetris Retro",
+  "short_name": "Tetris",
+  "description": "Jogo de Tetris com visual neon retrô e Modo Prisma.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080810",
+  "theme_color": "#00f0f0",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "entertainment"],
+  "lang": "pt-BR"
+}
