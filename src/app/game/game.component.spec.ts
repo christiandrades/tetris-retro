@@ -334,7 +334,7 @@ describe('GameComponent', () => {
 
     it('deve trocar peça atual pela peça em hold na segunda chamada', () => {
       (component as any).hold();
-      const pecaEmHold = component.held;
+      const pecaEmHold = component.held!; // non-null: após o primeiro hold sempre existe
       component.canHold = true; // libera novo hold
 
       (component as any).hold();
