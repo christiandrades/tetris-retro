@@ -128,11 +128,14 @@ describe('GameComponent', () => {
       component.level = 1;
       component.prismaActive = true;
 
-      fillRow(component.board, 19);
+      fillRow(component.board, 19); // 10 células de #00f0f0
       (component as any).clearLines();
 
-      // 1 linha = base 100 × level 1 × multiplicador 2 (prisma) = 200
-      expect(component.score).toBe(200);
+      // Cálculo real durante Modo Prisma:
+      //   Prisma Explosion: 10 células × 50 pts × level 1 = 500
+      //   Limpeza 1 linha:  base 100 × level 1 × multiplicador 2 = 200
+      //   Total esperado:   700
+      expect(component.score).toBe(700);
     });
 
     it('deve remover blocos da cor dominante via Prisma Explosion', () => {
