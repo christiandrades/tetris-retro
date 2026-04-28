@@ -83,7 +83,7 @@ export class GameComponent implements OnInit, OnDestroy {
 
   // ── Prisma Pulse state ────────────────────────────────────────────────────
   // Unique feature: clearing lines fills a meter; when full, Prisma Mode
-  // activates for 10 s — board pulses with rainbow neon and every line clear
+  // activates for 20 s — board pulses with rainbow neon and every line clear
   // detonates all same-color blocks remaining on the board for bonus points.
   prismaProgress = 0;   // 0–100 %
   prismaActive   = false;
@@ -190,10 +190,10 @@ export class GameComponent implements OnInit, OnDestroy {
 
   // ── Prisma Pulse ──────────────────────────────────────────────────────────
 
-  /** Start 10-second Prisma Mode */
+  /** Start 20-second Prisma Mode */
   private activatePrisma(): void {
     this.prismaActive   = true;
-    this.prismaTimeLeft = 10;
+    this.prismaTimeLeft = 20;
     this.prismaProgress = 0;
     this.prismaTimer = setInterval(() => {
       if (--this.prismaTimeLeft <= 0) {
