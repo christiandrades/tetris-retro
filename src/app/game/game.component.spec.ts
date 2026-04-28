@@ -298,12 +298,12 @@ describe('GameComponent', () => {
       expect(component.level).toBe(2);
     });
 
-    it('deve reduzir o dropDelay ao avançar de nível', () => {
-      const delayInicial = (component as any).dropDelay;
+    it('deve reduzir o dropIntervalMs ao avançar de nível', () => {
+      const delayInicial = (component as any).dropIntervalMs;
       component.lines = 9;
       fillRow(component.board, 19);
       (component as any).clearLines();
-      expect((component as any).dropDelay).toBeLessThan(delayInicial);
+      expect((component as any).dropIntervalMs).toBeLessThan(delayInicial);
     });
 
     it('não deve remover linha incompleta', () => {
