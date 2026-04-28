@@ -189,9 +189,13 @@ describe('GameComponent', () => {
     });
 
     it('deve detectar colisão com célula bloqueada no tabuleiro', () => {
-      component.current.x = 0;
-      component.current.y = 0;
-      component.board[1][0] = '#f0a000'; // célula bloqueada abaixo
+      // Peça O (type=1): shape [[1,1],[1,1]] — garante célula em [0][0]
+      // independente do Math.random() no spawn, tornando o teste determinístico.
+      component.current.type     = 1;
+      component.current.rotation = 0;
+      component.current.x        = 0;
+      component.current.y        = 0;
+      component.board[1][0]      = '#f0a000'; // célula bloqueada abaixo
       expect((component as any).collides(component.current, 0, 1)).toBeTrue();
     });
 
