@@ -9,6 +9,7 @@
 [![Tests](https://img.shields.io/badge/testes-40%20specs%20✓-brightgreen)](#testes)
 [![PWA](https://img.shields.io/badge/PWA-ready-5A0FC8?logo=pwa&logoColor=white)](#pwa--instalação)
 [![License](https://img.shields.io/badge/licença-MIT-blue)](./LICENSE)
+[![Demo](https://img.shields.io/badge/demo-live-ff69b4?logo=github)](https://christiandrades.github.io/tetris-retro)
 
 *Construído por [Christian Andrade](https://github.com/christiandrades) · © 2026 KrDevs*
 
@@ -184,9 +185,11 @@ Os testes usam `fakeAsync/tick` para controlar o timer de 20 segundos do Modo Pr
 
 O projeto é uma **Progressive Web App** totalmente funcional.
 
+🔗 **[https://christiandrades.github.io/tetris-retro](https://christiandrades.github.io/tetris-retro)**
+
 ### Instalação no Desktop (Chrome / Edge)
 
-1. Acesse a URL do projeto
+1. Acesse o link acima
 2. Clique no ícone de instalação na barra de endereço (⊕)
 3. Confirme a instalação
 4. O jogo abre como app nativo, sem barra do navegador
