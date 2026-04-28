@@ -4,18 +4,27 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
-// Board dimensions and block pixel size
-const COLS  = 10;
-const ROWS  = 20;
-const BLOCK = 32;
+// ── Board configuration ───────────────────────────────────────────────────────
+const BOARD_COLS = 10;
+const BOARD_ROWS = 20;
+const BLOCK_SIZE = 32;
 
-// Neon colors for each tetromino type (I O T S Z J L)
-const COLORS = [
+// ── Scoring ───────────────────────────────────────────────────────────────────
+// Base points for clearing 1, 2, 3 or 4 lines simultaneously (index = count)
+const LINE_SCORE_TABLE = [0, 100, 300, 500, 800];
+
+// ── Prisma Mode ───────────────────────────────────────────────────────────────
+const PRISMA_DURATION_SECONDS      = 20;  // how long the mode lasts
+const PRISMA_METER_FILL_PER_LINE   = 20;  // % added to meter per cleared line
+const PRISMA_EXPLOSION_PTS_PER_BLOCK = 50; // bonus per block removed on explosion
+
+// ── Neon colors for each tetromino type (I O T S Z J L) ──────────────────────
+const PIECE_COLORS = [
   '#00f0f0', '#f0f000', '#a000f0',
   '#00f000', '#f00000', '#0000f0', '#f0a000',
 ];
 
-// Tetromino shapes indexed by [type][rotation]
+// ── Tetromino shapes indexed by [type][rotation] ──────────────────────────────
 const SHAPES: number[][][][] = [
   // I
   [[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
@@ -52,7 +61,10 @@ class Piece {
   get shape(): number[][] {
     return SHAPES[this.type][this.rotation % SHAPES[this.type].length];
   }
-  get color(): string { return COLORS[this.type]; }
+
+  get color(): string {
+    return PIECE_COLORS[this.type];
+  }
 }
 
 @Component({
@@ -67,7 +79,7 @@ export class GameComponent implements OnInit, OnDestroy {
   @ViewChild('nextCanvas', { static: true }) nextRef!:   ElementRef<HTMLCanvasElement>;
   @ViewChild('holdCanvas', { static: true }) holdRef!:   ElementRef<HTMLCanvasElement>;
 
-  private ctx!:     CanvasRenderingContext2D;
+  private gameCtx!: CanvasRenderingContext2D;
   private nextCtx!: CanvasRenderingContext2D;
   private holdCtx!: CanvasRenderingContext2D;
 
@@ -81,188 +93,221 @@ export class GameComponent implements OnInit, OnDestroy {
   lines = 0;
   level = 1;
 
-  // ── Prisma Pulse state ────────────────────────────────────────────────────
-  // Unique feature: clearing lines fills a meter; when full, Prisma Mode
-  // activates for 20 s — board pulses with rainbow neon and every line clear
-  // detonates all same-color blocks remaining on the board for bonus points.
-  prismaProgress = 0;   // 0–100 %
+  prismaProgress = 0; // 0–100 %
   prismaActive   = false;
   prismaTimeLeft = 0;
-  // ─────────────────────────────────────────────────────────────────────────
 
   gameOver = false;
   paused   = false;
 
-  private animFrame!:   number;
-  private prismaTimer!: ReturnType<typeof setInterval>;
-  private dropDelay  = 1000;
-  private dropCounter = 0;
-  private lastTime    = 0;
+  private animationFrameId!:     number;
+  private prismaCountdownTimer!: ReturnType<typeof setInterval>;
+  private dropIntervalMs   = 1000;
+  private dropAccumulatedMs = 0;
+  private lastFrameTime     = 0;
 
   ngOnInit(): void {
-    this.ctx     = this.canvasRef.nativeElement.getContext('2d')!;
+    this.gameCtx = this.canvasRef.nativeElement.getContext('2d')!;
     this.nextCtx = this.nextRef.nativeElement.getContext('2d')!;
     this.holdCtx = this.holdRef.nativeElement.getContext('2d')!;
     this.restart();
   }
 
   ngOnDestroy(): void {
-    cancelAnimationFrame(this.animFrame);
-    clearInterval(this.prismaTimer);
+    cancelAnimationFrame(this.animationFrameId);
+    clearInterval(this.prismaCountdownTimer);
   }
 
-  // ── Board helpers ─────────────────────────────────────────────────────────
+  // ── Board ─────────────────────────────────────────────────────────────────
 
-  /** Reset board to empty cells */
-  private initBoard(): void {
-    this.board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+  private resetBoard(): void {
+    this.board = Array.from({ length: BOARD_ROWS }, () => Array(BOARD_COLS).fill(null));
   }
 
-  /** Place next piece at top; game over when collision occurs immediately */
   private spawn(): void {
-    this.current = this.next;
-    this.current.x = Math.floor(COLS / 2) - Math.floor(this.current.shape[0].length / 2);
+    this.current   = this.next;
+    this.current.x = Math.floor(BOARD_COLS / 2) - Math.floor(this.current.shape[0].length / 2);
     this.current.y = 0;
-    this.next    = new Piece(Math.floor(Math.random() * 7));
-    this.canHold = true;
+    this.next      = new Piece(Math.floor(Math.random() * 7));
+    this.canHold   = true;
     if (this.collides(this.current, 0, 0)) this.gameOver = true;
   }
 
-  /** True when piece + offset would overlap wall, floor or locked cell */
-  private collides(p: Piece, dx: number, dy: number, rot?: number): boolean {
-    const shape = rot !== undefined
-      ? SHAPES[p.type][rot % SHAPES[p.type].length]
-      : p.shape;
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[r].length; c++) {
-        if (!shape[r][c]) continue;
-        const nx = p.x + c + dx;
-        const ny = p.y + r + dy;
-        if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
-        if (ny >= 0 && this.board[ny][nx])       return true;
+  private collides(
+    piece: Piece,
+    offsetX: number,
+    offsetY: number,
+    targetRotation?: number,
+  ): boolean {
+    const shape = targetRotation !== undefined
+      ? SHAPES[piece.type][targetRotation % SHAPES[piece.type].length]
+      : piece.shape;
+
+    for (let row = 0; row < shape.length; row++) {
+      for (let col = 0; col < shape[row].length; col++) {
+        if (!shape[row][col]) continue;
+
+        const boardX = piece.x + col + offsetX;
+        const boardY = piece.y + row + offsetY;
+
+        if (boardX < 0 || boardX >= BOARD_COLS || boardY >= BOARD_ROWS) return true;
+        if (boardY >= 0 && this.board[boardY][boardX]) return true;
       }
     }
     return false;
   }
 
-  /** Paint current piece onto board, clear lines, spawn next */
   private lock(): void {
-    for (let r = 0; r < this.current.shape.length; r++) {
-      for (let c = 0; c < this.current.shape[r].length; c++) {
-        if (!this.current.shape[r][c]) continue;
-        const y = this.current.y + r;
-        const x = this.current.x + c;
-        if (y >= 0) this.board[y][x] = this.current.color;
+    for (let row = 0; row < this.current.shape.length; row++) {
+      for (let col = 0; col < this.current.shape[row].length; col++) {
+        if (!this.current.shape[row][col]) continue;
+        const boardY = this.current.y + row;
+        const boardX = this.current.x + col;
+        if (boardY >= 0) this.board[boardY][boardX] = this.current.color;
       }
     }
     this.clearLines();
     this.spawn();
   }
 
-  /** Remove completed rows, update score/level, feed Prisma meter */
+  // ── Line clearing ─────────────────────────────────────────────────────────
+
   private clearLines(): void {
-    const cleared: number[] = [];
-    for (let r = ROWS - 1; r >= 0; r--) {
-      if (this.board[r].every(c => c !== null)) cleared.push(r);
+    const completedRows = this.findCompletedRows();
+    if (!completedRows.length) return;
+
+    if (this.prismaActive) this.prismaExplosion(completedRows);
+
+    this.removeRows(completedRows);
+    this.updateScore(completedRows.length);
+    this.advanceLevel();
+    this.updatePrismaMeter(completedRows.length);
+  }
+
+  private findCompletedRows(): number[] {
+    const completed: number[] = [];
+    for (let row = BOARD_ROWS - 1; row >= 0; row--) {
+      if (this.board[row].every(cell => cell !== null)) completed.push(row);
     }
-    if (!cleared.length) return;
+    return completed;
+  }
 
-    // Prisma Explosion fires before rows are removed
-    if (this.prismaActive) this.prismaExplosion(cleared);
-
-    for (const r of cleared) {
-      this.board.splice(r, 1);
-      this.board.unshift(Array(COLS).fill(null));
-    }
-
-    const base = [0, 100, 300, 500, 800];
-    this.score += (base[cleared.length] ?? 800) * this.level * (this.prismaActive ? 2 : 1);
-    this.lines += cleared.length;
-    this.level  = Math.floor(this.lines / 10) + 1;
-    this.dropDelay = Math.max(100, 1000 - (this.level - 1) * 90);
-
-    // Each line cleared adds 20 % to the Prisma Meter
-    if (!this.prismaActive) {
-      this.prismaProgress = Math.min(100, this.prismaProgress + cleared.length * 20);
-      if (this.prismaProgress >= 100) this.activatePrisma();
+  private removeRows(completedRows: number[]): void {
+    for (const row of completedRows) {
+      this.board.splice(row, 1);
+      this.board.unshift(Array(BOARD_COLS).fill(null));
     }
   }
 
-  // ── Prisma Pulse ──────────────────────────────────────────────────────────
+  private updateScore(lineCount: number): void {
+    const baseScore        = LINE_SCORE_TABLE[lineCount] ?? 800;
+    const prismaMultiplier = this.prismaActive ? 2 : 1;
+    this.score += baseScore * this.level * prismaMultiplier;
+    this.lines += lineCount;
+  }
 
-  /** Start 20-second Prisma Mode */
+  private advanceLevel(): void {
+    this.level         = Math.floor(this.lines / 10) + 1;
+    this.dropIntervalMs = Math.max(100, 1000 - (this.level - 1) * 90);
+  }
+
+  private updatePrismaMeter(linesCleared: number): void {
+    if (this.prismaActive) return;
+    this.prismaProgress = Math.min(100, this.prismaProgress + linesCleared * PRISMA_METER_FILL_PER_LINE);
+    if (this.prismaProgress >= 100) this.activatePrisma();
+  }
+
+  // ── Prisma Mode ───────────────────────────────────────────────────────────
+
   private activatePrisma(): void {
     this.prismaActive   = true;
-    this.prismaTimeLeft = 20;
+    this.prismaTimeLeft = PRISMA_DURATION_SECONDS;
     this.prismaProgress = 0;
-    this.prismaTimer = setInterval(() => {
+    this.prismaCountdownTimer = setInterval(() => {
       if (--this.prismaTimeLeft <= 0) {
         this.prismaActive = false;
-        clearInterval(this.prismaTimer);
+        clearInterval(this.prismaCountdownTimer);
       }
     }, 1000);
   }
 
-  /**
-   * Prisma Explosion: find the dominant color in cleared rows and remove
-   * every cell of that color still on the board, awarding 50 pts each.
-   */
-  private prismaExplosion(clearedRows: number[]): void {
-    const freq: Record<string, number> = {};
-    for (const r of clearedRows) {
-      for (const cell of this.board[r]) {
-        if (cell) freq[cell] = (freq[cell] ?? 0) + 1;
+  // Finds the dominant color among cleared rows and removes every matching
+  // cell still on the board, awarding bonus points for each one removed.
+  private prismaExplosion(completedRows: number[]): void {
+    const colorFrequency: Record<string, number> = {};
+    for (const row of completedRows) {
+      for (const cell of this.board[row]) {
+        if (cell) colorFrequency[cell] = (colorFrequency[cell] ?? 0) + 1;
       }
     }
-    const dominant = Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0];
-    if (!dominant) return;
 
-    let bonus = 0;
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        if (this.board[r][c] === dominant) { this.board[r][c] = null; bonus += 50; }
+    const dominantColor = Object.entries(colorFrequency)
+      .sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (!dominantColor) return;
+
+    let explosionBonus = 0;
+    for (let row = 0; row < BOARD_ROWS; row++) {
+      for (let col = 0; col < BOARD_COLS; col++) {
+        if (this.board[row][col] === dominantColor) {
+          this.board[row][col] = null;
+          explosionBonus += PRISMA_EXPLOSION_PTS_PER_BLOCK;
+        }
       }
     }
-    this.score += bonus * this.level;
+    this.score += explosionBonus * this.level;
   }
 
   // ── Input ─────────────────────────────────────────────────────────────────
 
   @HostListener('window:keydown', ['$event'])
-  onKey(e: KeyboardEvent): void {
-    if (this.gameOver) { if (e.key === 'Enter') this.restart(); return; }
-    if (e.key === 'p' || e.key === 'P') { this.paused = !this.paused; return; }
+  onKey(event: KeyboardEvent): void {
+    if (this.gameOver) {
+      if (event.key === 'Enter') this.restart();
+      return;
+    }
+    if (event.key === 'p' || event.key === 'P') {
+      this.paused = !this.paused;
+      return;
+    }
     if (this.paused) return;
 
-    switch (e.key) {
-      case 'ArrowLeft':  if (!this.collides(this.current, -1, 0)) this.current.x--; break;
-      case 'ArrowRight': if (!this.collides(this.current,  1, 0)) this.current.x++; break;
+    switch (event.key) {
+      case 'ArrowLeft':
+        if (!this.collides(this.current, -1, 0)) this.current.x--;
+        break;
+      case 'ArrowRight':
+        if (!this.collides(this.current, 1, 0)) this.current.x++;
+        break;
       case 'ArrowDown':
         if (!this.collides(this.current, 0, 1)) this.current.y++;
         else this.lock();
         break;
-      case 'ArrowUp': this.rotate(); break;
-      case ' ':       this.hardDrop(); break;
-      case 'c': case 'C': this.hold(); break;
+      case 'ArrowUp':
+        this.rotate();
+        break;
+      case ' ':
+        this.hardDrop();
+        break;
+      case 'c':
+      case 'C':
+        this.hold();
+        break;
     }
-    e.preventDefault();
+    event.preventDefault();
   }
 
-  /** Rotate with single-cell wall kick */
   private rotate(): void {
-    const next = (this.current.rotation + 1) % SHAPES[this.current.type].length;
-    if      (!this.collides(this.current,  0, 0, next)) { this.current.rotation = next; }
-    else if (!this.collides(this.current,  1, 0, next)) { this.current.x++; this.current.rotation = next; }
-    else if (!this.collides(this.current, -1, 0, next)) { this.current.x--; this.current.rotation = next; }
+    const nextRotation = (this.current.rotation + 1) % SHAPES[this.current.type].length;
+    if      (!this.collides(this.current,  0, 0, nextRotation)) { this.current.rotation = nextRotation; }
+    else if (!this.collides(this.current,  1, 0, nextRotation)) { this.current.x++; this.current.rotation = nextRotation; }
+    else if (!this.collides(this.current, -1, 0, nextRotation)) { this.current.x--; this.current.rotation = nextRotation; }
   }
 
-  /** Instantly drop piece to lowest valid row */
   private hardDrop(): void {
     while (!this.collides(this.current, 0, 1)) this.current.y++;
     this.lock();
   }
 
-  /** Swap current piece with held slot */
   private hold(): void {
     if (!this.canHold) return;
     if (!this.held) {
@@ -270,195 +315,207 @@ export class GameComponent implements OnInit, OnDestroy {
       this.spawn();
     } else {
       [this.current, this.held] = [this.held, this.current];
-      this.current.x        = Math.floor(COLS / 2) - Math.floor(this.current.shape[0].length / 2);
+      this.current.x        = Math.floor(BOARD_COLS / 2) - Math.floor(this.current.shape[0].length / 2);
       this.current.y        = 0;
       this.current.rotation = 0;
     }
     this.canHold = false;
   }
 
-  /** Y position of ghost (shadow) piece */
   private ghostY(): number {
-    let dy = 0;
-    while (!this.collides(this.current, 0, dy + 1)) dy++;
-    return this.current.y + dy;
+    let dropOffset = 0;
+    while (!this.collides(this.current, 0, dropOffset + 1)) dropOffset++;
+    return this.current.y + dropOffset;
   }
 
   // ── Game lifecycle ────────────────────────────────────────────────────────
 
   restart(): void {
-    clearInterval(this.prismaTimer);
-    cancelAnimationFrame(this.animFrame);
-    this.score          = 0;
-    this.lines          = 0;
-    this.level          = 1;
-    this.dropDelay      = 1000;
-    this.dropCounter    = 0;
-    this.lastTime       = 0;
-    this.held           = null;
-    this.canHold        = true;
-    this.gameOver       = false;
-    this.paused         = false;
-    this.prismaProgress = 0;
-    this.prismaActive   = false;
-    this.prismaTimeLeft = 0;
-    this.initBoard();
+    clearInterval(this.prismaCountdownTimer);
+    cancelAnimationFrame(this.animationFrameId);
+    this.score             = 0;
+    this.lines             = 0;
+    this.level             = 1;
+    this.dropIntervalMs    = 1000;
+    this.dropAccumulatedMs = 0;
+    this.lastFrameTime     = 0;
+    this.held              = null;
+    this.canHold           = true;
+    this.gameOver          = false;
+    this.paused            = false;
+    this.prismaProgress    = 0;
+    this.prismaActive      = false;
+    this.prismaTimeLeft    = 0;
+    this.resetBoard();
     this.next = new Piece(Math.floor(Math.random() * 7));
     this.spawn();
-    this.animFrame = requestAnimationFrame(t => this.loop(t));
+    this.animationFrameId = requestAnimationFrame(timestamp => this.gameLoop(timestamp));
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  /** Main animation loop — advances drop timer and redraws each frame */
-  private loop(time: number): void {
+  private gameLoop(timestamp: number): void {
     if (!this.gameOver && !this.paused) {
-      this.dropCounter += time - this.lastTime;
-      if (this.dropCounter >= this.dropDelay) {
+      this.dropAccumulatedMs += timestamp - this.lastFrameTime;
+      if (this.dropAccumulatedMs >= this.dropIntervalMs) {
         if (!this.collides(this.current, 0, 1)) this.current.y++;
         else this.lock();
-        this.dropCounter = 0;
+        this.dropAccumulatedMs = 0;
       }
     }
-    this.lastTime = time;
-    this.draw();
-    this.animFrame = requestAnimationFrame(t => this.loop(t));
+    this.lastFrameTime = timestamp;
+    this.renderFrame();
+    this.animationFrameId = requestAnimationFrame(t => this.gameLoop(t));
   }
 
-  /** Full frame render */
-  private draw(): void {
-    const { ctx } = this;
+  private renderFrame(): void {
+    const ctx = this.gameCtx;
     ctx.fillStyle = '#080810';
-    ctx.fillRect(0, 0, COLS * BLOCK, ROWS * BLOCK);
+    ctx.fillRect(0, 0, BOARD_COLS * BLOCK_SIZE, BOARD_ROWS * BLOCK_SIZE);
 
-    // Subtle grid
+    this.renderGrid(ctx);
+    this.renderLockedBlocks();
+    this.renderGhostPiece();
+    this.renderPiece(ctx, this.current, this.current.x, this.current.y);
+    this.renderPreviews();
+
+    if (this.prismaActive) this.renderPrismaOverlay();
+    if (this.gameOver)     this.renderOverlayScreen('GAME OVER', 'ENTER to restart', '#ff0055');
+    if (this.paused)       this.renderOverlayScreen('PAUSED',    'P to resume',       '#00f0f0');
+  }
+
+  private renderGrid(ctx: CanvasRenderingContext2D): void {
     ctx.strokeStyle = 'rgba(255,255,255,0.04)';
     ctx.lineWidth   = 0.5;
-    for (let r = 0; r < ROWS; r++)
-      for (let c = 0; c < COLS; c++)
-        ctx.strokeRect(c * BLOCK, r * BLOCK, BLOCK, BLOCK);
-
-    this.drawBoard();
-    this.drawGhost();
-    this.drawPiece(ctx, this.current, this.current.x, this.current.y);
-    this.drawPreviews();
-
-    if (this.prismaActive) this.drawPrismaOverlay();
-    if (this.gameOver)     this.drawScreen('GAME OVER', 'ENTER to restart', '#ff0055');
-    if (this.paused)       this.drawScreen('PAUSED',    'P to resume',       '#00f0f0');
+    for (let row = 0; row < BOARD_ROWS; row++) {
+      for (let col = 0; col < BOARD_COLS; col++) {
+        ctx.strokeRect(col * BLOCK_SIZE, row * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+      }
+    }
   }
 
-  /** Draw all locked board cells */
-  private drawBoard(): void {
-    for (let r = 0; r < ROWS; r++)
-      for (let c = 0; c < COLS; c++)
-        if (this.board[r][c]) this.drawBlock(this.ctx, c, r, this.board[r][c]!);
+  private renderLockedBlocks(): void {
+    for (let row = 0; row < BOARD_ROWS; row++) {
+      for (let col = 0; col < BOARD_COLS; col++) {
+        if (this.board[row][col]) {
+          this.renderBlock(this.gameCtx, col, row, this.board[row][col]!);
+        }
+      }
+    }
   }
 
-  /** Draw translucent ghost outline showing where the piece will land */
-  private drawGhost(): void {
-    const gy    = this.ghostY();
-    const shape = this.current.shape;
-    this.ctx.globalAlpha = 0.25;
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[r].length; c++) {
-        if (!shape[r][c]) continue;
-        this.ctx.strokeStyle = this.current.color;
-        this.ctx.lineWidth   = 1.5;
-        this.ctx.strokeRect(
-          (this.current.x + c) * BLOCK + 2,
-          (gy + r) * BLOCK + 2,
-          BLOCK - 4, BLOCK - 4,
+  private renderGhostPiece(): void {
+    const ghostRow = this.ghostY();
+    const shape    = this.current.shape;
+
+    this.gameCtx.globalAlpha = 0.25;
+    for (let row = 0; row < shape.length; row++) {
+      for (let col = 0; col < shape[row].length; col++) {
+        if (!shape[row][col]) continue;
+        this.gameCtx.strokeStyle = this.current.color;
+        this.gameCtx.lineWidth   = 1.5;
+        this.gameCtx.strokeRect(
+          (this.current.x + col) * BLOCK_SIZE + 2,
+          (ghostRow + row) * BLOCK_SIZE + 2,
+          BLOCK_SIZE - 4,
+          BLOCK_SIZE - 4,
         );
       }
     }
-    this.ctx.globalAlpha = 1;
+    this.gameCtx.globalAlpha = 1;
   }
 
-  /** Draw a tetromino at board-space coordinates (px, py) */
-  private drawPiece(
+  private renderPiece(
     ctx: CanvasRenderingContext2D,
-    piece: Piece, px: number, py: number,
+    piece: Piece,
+    originCol: number,
+    originRow: number,
   ): void {
-    for (let r = 0; r < piece.shape.length; r++)
-      for (let c = 0; c < piece.shape[r].length; c++)
-        if (piece.shape[r][c]) this.drawBlock(ctx, px + c, py + r, piece.color);
+    for (let row = 0; row < piece.shape.length; row++) {
+      for (let col = 0; col < piece.shape[row].length; col++) {
+        if (piece.shape[row][col]) {
+          this.renderBlock(ctx, originCol + col, originRow + row, piece.color);
+        }
+      }
+    }
   }
 
-  /** Draw next-piece and hold-piece previews */
-  private drawPreviews(): void {
-    for (const [ctx, piece, dim] of [
-      [this.nextCtx, this.next,   1] as const,
-      [this.holdCtx, this.held,   this.canHold ? 1 : 0.35] as const,
-    ]) {
+  private renderPreviews(): void {
+    const previews: [CanvasRenderingContext2D, Piece | null, number][] = [
+      [this.nextCtx, this.next, 1],
+      [this.holdCtx, this.held, this.canHold ? 1 : 0.35],
+    ];
+
+    for (const [ctx, piece, opacity] of previews) {
       ctx.fillStyle = '#080810';
       ctx.fillRect(0, 0, 128, 128);
       if (!piece) continue;
-      ctx.globalAlpha = dim as number;
-      const ox = Math.floor((4 - piece.shape[0].length) / 2);
-      const oy = Math.floor((4 - piece.shape.length)    / 2);
-      this.drawPiece(ctx, piece, ox, oy);
+      ctx.globalAlpha = opacity;
+      const offsetCol = Math.floor((4 - piece.shape[0].length) / 2);
+      const offsetRow = Math.floor((4 - piece.shape.length)    / 2);
+      this.renderPiece(ctx, piece, offsetCol, offsetRow);
       ctx.globalAlpha = 1;
     }
   }
 
-  /** One neon block with highlight bevel and glow */
-  private drawBlock(
+  private renderBlock(
     ctx: CanvasRenderingContext2D,
-    cx: number, cy: number, color: string,
+    col: number,
+    row: number,
+    color: string,
   ): void {
-    const x = cx * BLOCK + 1;
-    const y = cy * BLOCK + 1;
-    const s = BLOCK - 2;
+    const pixelX    = col * BLOCK_SIZE + 1;
+    const pixelY    = row * BLOCK_SIZE + 1;
+    const innerSize = BLOCK_SIZE - 2;
 
     ctx.fillStyle = color;
-    ctx.fillRect(x, y, s, s);
+    ctx.fillRect(pixelX, pixelY, innerSize, innerSize);
 
-    // Bevel highlight
+    // Bevel highlight on top and left edges
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    ctx.fillRect(x, y, s, 4);
-    ctx.fillRect(x, y, 4, s);
+    ctx.fillRect(pixelX, pixelY, innerSize, 4);
+    ctx.fillRect(pixelX, pixelY, 4, innerSize);
 
     // Neon glow pass
     ctx.shadowColor = color;
     ctx.shadowBlur  = 10;
     ctx.fillStyle   = color;
-    ctx.fillRect(x, y, s, s);
+    ctx.fillRect(pixelX, pixelY, innerSize, innerSize);
     ctx.shadowBlur  = 0;
   }
 
-  /** Rainbow pulsing overlay rendered during Prisma Mode */
-  private drawPrismaOverlay(): void {
-    const hue   = (Date.now() / 18) % 360;
-    const pulse = 0.07 + Math.abs(Math.sin(Date.now() / 350)) * 0.07;
-    this.ctx.fillStyle = `hsla(${hue},100%,60%,${pulse})`;
-    this.ctx.fillRect(0, 0, COLS * BLOCK, ROWS * BLOCK);
+  private renderPrismaOverlay(): void {
+    const rainbowHue = (Date.now() / 18) % 360;
+    const pulseAlpha = 0.07 + Math.abs(Math.sin(Date.now() / 350)) * 0.07;
 
-    this.ctx.strokeStyle = `hsl(${hue},100%,65%)`;
-    this.ctx.lineWidth   = 3;
-    this.ctx.shadowColor = `hsl(${hue},100%,65%)`;
-    this.ctx.shadowBlur  = 20;
-    this.ctx.strokeRect(2, 2, COLS * BLOCK - 4, ROWS * BLOCK - 4);
-    this.ctx.shadowBlur  = 0;
+    this.gameCtx.fillStyle = `hsla(${rainbowHue},100%,60%,${pulseAlpha})`;
+    this.gameCtx.fillRect(0, 0, BOARD_COLS * BLOCK_SIZE, BOARD_ROWS * BLOCK_SIZE);
+
+    this.gameCtx.strokeStyle = `hsl(${rainbowHue},100%,65%)`;
+    this.gameCtx.lineWidth   = 3;
+    this.gameCtx.shadowColor = `hsl(${rainbowHue},100%,65%)`;
+    this.gameCtx.shadowBlur  = 20;
+    this.gameCtx.strokeRect(2, 2, BOARD_COLS * BLOCK_SIZE - 4, BOARD_ROWS * BLOCK_SIZE - 4);
+    this.gameCtx.shadowBlur  = 0;
   }
 
-  /** Generic fullscreen overlay (game over / paused) */
-  private drawScreen(title: string, sub: string, color: string): void {
-    const W = COLS * BLOCK;
-    const H = ROWS * BLOCK;
-    this.ctx.fillStyle = 'rgba(0,0,0,0.72)';
-    this.ctx.fillRect(0, 0, W, H);
+  private renderOverlayScreen(title: string, subtitle: string, color: string): void {
+    const canvasWidth  = BOARD_COLS * BLOCK_SIZE;
+    const canvasHeight = BOARD_ROWS * BLOCK_SIZE;
 
-    this.ctx.textAlign  = 'center';
-    this.ctx.shadowColor = color;
-    this.ctx.shadowBlur  = 22;
-    this.ctx.fillStyle   = color;
-    this.ctx.font        = 'bold 26px "Press Start 2P", monospace';
-    this.ctx.fillText(title, W / 2, H / 2 - 18);
+    this.gameCtx.fillStyle = 'rgba(0,0,0,0.72)';
+    this.gameCtx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-    this.ctx.shadowBlur = 0;
-    this.ctx.fillStyle  = 'rgba(255,255,255,0.7)';
-    this.ctx.font       = '9px "Press Start 2P", monospace';
-    this.ctx.fillText(sub, W / 2, H / 2 + 22);
+    this.gameCtx.textAlign   = 'center';
+    this.gameCtx.shadowColor = color;
+    this.gameCtx.shadowBlur  = 22;
+    this.gameCtx.fillStyle   = color;
+    this.gameCtx.font        = 'bold 26px "Press Start 2P", monospace';
+    this.gameCtx.fillText(title, canvasWidth / 2, canvasHeight / 2 - 18);
+
+    this.gameCtx.shadowBlur = 0;
+    this.gameCtx.fillStyle  = 'rgba(255,255,255,0.7)';
+    this.gameCtx.font       = '9px "Press Start 2P", monospace';
+    this.gameCtx.fillText(subtitle, canvasWidth / 2, canvasHeight / 2 + 22);
   }
 }
