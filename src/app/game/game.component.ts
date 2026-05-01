@@ -106,16 +106,37 @@ export class GameComponent implements OnInit, OnDestroy {
   private dropAccumulatedMs = 0;
   private lastFrameTime     = 0;
 
+  // ── Touch state ───────────────────────────────────────────────────────────
+  private touchStartX     = 0;
+  private touchStartY     = 0;
+  private touchLastX      = 0;
+  private touchLastY      = 0;
+  private touchStartTime  = 0;
+  private touchHasGesture = false;
+
+  // Thresholds (in CSS pixels, device-independent)
+  private readonly TOUCH_CELL_PX   = 28; // horizontal pixels per cell move
+  private readonly TOUCH_DROP_PX   = 24; // vertical pixels per soft-drop step
+  private readonly TAP_MAX_PX      = 12; // max displacement to be counted as tap
+  private readonly HARD_DROP_SPEED = 0.4; // px/ms minimum for hard-drop flick
+
+  // Bound references kept for proper removeEventListener cleanup
+  private boundTouchStart!: (e: TouchEvent) => void;
+  private boundTouchMove!:  (e: TouchEvent) => void;
+  private boundTouchEnd!:   (e: TouchEvent) => void;
+
   ngOnInit(): void {
     this.gameCtx = this.canvasRef.nativeElement.getContext('2d')!;
     this.nextCtx = this.nextRef.nativeElement.getContext('2d')!;
     this.holdCtx = this.holdRef.nativeElement.getContext('2d')!;
+    this.initTouchListeners();
     this.restart();
   }
 
   ngOnDestroy(): void {
     cancelAnimationFrame(this.animationFrameId);
     clearInterval(this.prismaCountdownTimer);
+    this.removeTouchListeners();
   }
 
   // ── Board ─────────────────────────────────────────────────────────────────
@@ -257,7 +278,96 @@ export class GameComponent implements OnInit, OnDestroy {
     this.score += explosionBonus * this.level;
   }
 
-  // ── Input ─────────────────────────────────────────────────────────────────
+  // ── Touch input ───────────────────────────────────────────────────────────
+
+  // Attach listeners with { passive: false } so preventDefault() is allowed,
+  // which blocks native scroll/zoom while the user is interacting with the board.
+  private initTouchListeners(): void {
+    const canvas = this.canvasRef.nativeElement;
+    this.boundTouchStart = (e) => this.onTouchStart(e);
+    this.boundTouchMove  = (e) => this.onTouchMove(e);
+    this.boundTouchEnd   = (e) => this.onTouchEnd(e);
+    canvas.addEventListener('touchstart', this.boundTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',  this.boundTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',   this.boundTouchEnd,   { passive: false });
+  }
+
+  private removeTouchListeners(): void {
+    const canvas = this.canvasRef.nativeElement;
+    canvas.removeEventListener('touchstart', this.boundTouchStart);
+    canvas.removeEventListener('touchmove',  this.boundTouchMove);
+    canvas.removeEventListener('touchend',   this.boundTouchEnd);
+  }
+
+  private onTouchStart(e: TouchEvent): void {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    this.touchStartX     = t.clientX;
+    this.touchStartY     = t.clientY;
+    this.touchLastX      = t.clientX;
+    this.touchLastY      = t.clientY;
+    this.touchStartTime  = Date.now();
+    this.touchHasGesture = false;
+  }
+
+  // touchmove: real-time horizontal moves + continuous soft drop while dragging.
+  private onTouchMove(e: TouchEvent): void {
+    e.preventDefault();
+    if (this.gameOver || this.paused) return;
+
+    const t  = e.changedTouches[0];
+    const dx = t.clientX - this.touchLastX;
+    const dy = t.clientY - this.touchLastY;
+
+    if (Math.abs(dx) >= this.TOUCH_CELL_PX) {
+      const dir = dx > 0 ? 1 : -1;
+      if (!this.collides(this.current, dir, 0)) this.current.x += dir;
+      this.touchLastX      = t.clientX;
+      this.touchHasGesture = true;
+    }
+
+    if (dy >= this.TOUCH_DROP_PX) {
+      if (!this.collides(this.current, 0, 1)) this.current.y++;
+      else this.lock();
+      this.touchLastY      = t.clientY;
+      this.touchHasGesture = true;
+    }
+  }
+
+  // touchend: classify the gesture as tap, hard-drop flick or swipe-up (hold).
+  private onTouchEnd(e: TouchEvent): void {
+    e.preventDefault();
+
+    if (this.gameOver) { this.restart(); return; }
+    if (this.paused)   { this.paused = false; return; }
+
+    const t      = e.changedTouches[0];
+    const totalDx = t.clientX - this.touchStartX;
+    const totalDy = t.clientY - this.touchStartY;
+    const dt      = Date.now() - this.touchStartTime;
+
+    const absDx = Math.abs(totalDx);
+    const absDy = Math.abs(totalDy);
+
+    // Tap — minimal movement in any direction → rotate
+    if (absDx < this.TAP_MAX_PX && absDy < this.TAP_MAX_PX) {
+      this.rotate();
+      return;
+    }
+
+    // Fast downward flick → hard drop
+    if (absDy > absDx && totalDy > 0 && (totalDy / dt) >= this.HARD_DROP_SPEED) {
+      this.hardDrop();
+      return;
+    }
+
+    // Swipe up → hold
+    if (absDy > absDx && totalDy < -40) {
+      this.hold();
+    }
+  }
+
+  // ── Keyboard input ────────────────────────────────────────────────────────
 
   @HostListener('window:keydown', ['$event'])
   onKey(event: KeyboardEvent): void {

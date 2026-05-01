@@ -71,6 +71,49 @@
   }
 }
 
+// On touch devices show touch hints, hide keyboard hints (and vice-versa).
+// The @media (hover: none) targets devices with no mouse/stylus primary input.
+.touch-controls  { display: none; }
+
+@media (hover: none) and (pointer: coarse) {
+  .keyboard-controls { display: none; }
+  .touch-controls    { display: flex; }
+}
+
+// ── Mobile layout (≤ 700 px) ─────────────────────────────────────────────────
+@media (max-width: 700px) {
+  .layout {
+    flex-direction: column;
+    align-items:    center;
+    gap:            10px;
+    padding:        10px 8px 32px;
+  }
+
+  // Stack both side panels side-by-side below the board
+  .side-panel {
+    flex-direction: row;
+    flex-wrap:      wrap;
+    justify-content: center;
+    width:          100%;
+    gap:            8px;
+  }
+
+  .panel-box {
+    flex:      0 1 auto;
+    min-width: 80px;
+  }
+
+  // Canvas uses touch-action: none so swipes are never intercepted by the browser.
+  // CSS width scales it to fit narrow screens while keeping the canvas resolution.
+  .board-wrap {
+    canvas {
+      touch-action: none;
+      width:        min(320px, calc(100vw - 16px));
+      height:       auto;
+    }
+  }
+}
+
 // ── Prisma Pulse widget ───────────────────────────────────────────────────────
 .prisma-box {
   transition: border-color 0.3s, box-shadow 0.3s;
