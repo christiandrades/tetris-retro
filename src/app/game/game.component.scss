@@ -11,11 +11,15 @@
 
 // ── Board ────────────────────────────────────────────────────────────────────
 .board-wrap {
+  position:   relative; // anchor for overlay + pause-btn
   border:     2px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 0 24px rgba(0, 240, 240, 0.18), inset 0 0 32px rgba(0, 0, 0, 0.6);
   transition: border-color 0.3s, box-shadow 0.3s;
 
-  canvas { display: block; }
+  canvas {
+    display:      block;
+    touch-action: none; // always block browser scroll/zoom on the canvas
+  }
 
   &.prisma-active {
     animation: prisma-border 0.6s infinite alternate;
@@ -25,6 +29,98 @@
 @keyframes prisma-border {
   from { border-color: #ff00ff; box-shadow: 0 0 35px #ff00ff88, 0 0 70px #ff00ff44; }
   to   { border-color: #00ffff; box-shadow: 0 0 35px #00ffff88, 0 0 70px #00ffff44; }
+}
+
+// ── Pause HTML overlay ────────────────────────────────────────────────────────
+.pause-overlay {
+  position:        absolute;
+  inset:           0;
+  background:      rgba(8, 8, 16, 0.88);
+  display:         flex;
+  flex-direction:  column;
+  align-items:     center;
+  justify-content: center;
+  gap:             20px;
+  z-index:         10;
+  backdrop-filter: blur(2px);
+}
+
+.pause-title {
+  font-size:      22px;
+  color:          #00f0f0;
+  text-shadow:    0 0 22px #00f0f0;
+  letter-spacing: 6px;
+  margin:         0;
+}
+
+.pause-controls {
+  display:        flex;
+  flex-direction: column;
+  gap:            6px;
+
+  // Desktop hint visible by default; touch-hint hidden until touch media query
+  &.desktop-hint { display: flex; }
+  &.touch-hint   { display: none; }
+}
+
+.ctrl-row {
+  display:     flex;
+  gap:         12px;
+  align-items: center;
+  font-size:   9px;
+  color:       rgba(255, 255, 255, 0.7);
+
+  .key {
+    display:          inline-block;
+    min-width:        56px;
+    padding:          2px 6px;
+    border:           1px solid rgba(0, 240, 240, 0.4);
+    color:            #00f0f0;
+    text-align:       center;
+    letter-spacing:   1px;
+    font-size:        8px;
+  }
+}
+
+.resume-btn {
+  margin-top:     4px;
+  padding:        8px 24px;
+  background:     transparent;
+  border:         1px solid #00f0f0;
+  color:          #00f0f0;
+  font-family:    inherit;
+  font-size:      10px;
+  letter-spacing: 3px;
+  cursor:         pointer;
+  text-shadow:    0 0 10px #00f0f0;
+  box-shadow:     0 0 14px rgba(0, 240, 240, 0.25);
+  transition:     background 0.2s, box-shadow 0.2s;
+
+  &:hover, &:active {
+    background: rgba(0, 240, 240, 0.12);
+    box-shadow: 0 0 22px rgba(0, 240, 240, 0.5);
+  }
+}
+
+// ── Floating pause button (mobile/touch only by default) ─────────────────────
+.pause-btn {
+  display:      none; // shown only on touch via media query below
+  position:     absolute;
+  bottom:       8px;
+  right:        8px;
+  z-index:      9;
+  background:   rgba(8, 8, 16, 0.7);
+  border:       1px solid rgba(255, 255, 255, 0.2);
+  color:        rgba(255, 255, 255, 0.7);
+  font-size:    18px;
+  width:        36px;
+  height:       36px;
+  cursor:       pointer;
+  line-height:  1;
+  padding:      0;
+  transition:   background 0.2s;
+
+  &:active { background: rgba(0, 240, 240, 0.2); }
 }
 
 // ── Side panels ──────────────────────────────────────────────────────────────
@@ -71,49 +167,6 @@
   }
 }
 
-// On touch devices show touch hints, hide keyboard hints (and vice-versa).
-// The @media (hover: none) targets devices with no mouse/stylus primary input.
-.touch-controls  { display: none; }
-
-@media (hover: none) and (pointer: coarse) {
-  .keyboard-controls { display: none; }
-  .touch-controls    { display: flex; }
-}
-
-// ── Mobile layout (≤ 700 px) ─────────────────────────────────────────────────
-@media (max-width: 700px) {
-  .layout {
-    flex-direction: column;
-    align-items:    center;
-    gap:            10px;
-    padding:        10px 8px 32px;
-  }
-
-  // Stack both side panels side-by-side below the board
-  .side-panel {
-    flex-direction: row;
-    flex-wrap:      wrap;
-    justify-content: center;
-    width:          100%;
-    gap:            8px;
-  }
-
-  .panel-box {
-    flex:      0 1 auto;
-    min-width: 80px;
-  }
-
-  // Canvas uses touch-action: none so swipes are never intercepted by the browser.
-  // CSS width scales it to fit narrow screens while keeping the canvas resolution.
-  .board-wrap {
-    canvas {
-      touch-action: none;
-      width:        min(320px, calc(100vw - 16px));
-      height:       auto;
-    }
-  }
-}
-
 // ── Prisma Pulse widget ───────────────────────────────────────────────────────
 .prisma-box {
   transition: border-color 0.3s, box-shadow 0.3s;
@@ -132,13 +185,13 @@
 }
 
 .meter-wrap {
-  width:           32px;
-  height:          80px;
-  margin:          8px auto;
-  border:          1px solid rgba(255, 255, 255, 0.18);
-  display:         flex;
-  align-items:     flex-end;
-  overflow:        hidden;
+  width:       32px;
+  height:      80px;
+  margin:      8px auto;
+  border:      1px solid rgba(255, 255, 255, 0.18);
+  display:     flex;
+  align-items: flex-end;
+  overflow:    hidden;
 }
 
 .meter-fill {
@@ -167,4 +220,108 @@
     color:       #ff00ff;
     text-shadow: 0 0 10px #ff00ff;
   }
+}
+
+// ── Mobile compact stats bar (hidden on desktop) ──────────────────────────────
+.mobile-stats { display: none; }
+
+// ── Mobile layout: ≤ 700 px ───────────────────────────────────────────────────
+@media (max-width: 700px) {
+
+  // ── Root layout becomes a column ──────────────────────────────────────
+  .layout {
+    flex-direction: column;
+    align-items:    center;
+    gap:            8px;
+    padding:        8px 8px 16px;
+  }
+
+  // ── Ordering: stats → board → left-panel → right-panel ────────────────
+  .mobile-stats { order: 0; }
+  .board-wrap   { order: 1; }
+  .left-panel   { order: 2; }
+  .right-panel  { order: 2; }
+
+  // ── Mobile stats bar ──────────────────────────────────────────────────
+  .mobile-stats {
+    display:         flex;
+    justify-content: center;
+    gap:             8px;
+    width:           100%;
+  }
+
+  .stat-chip {
+    display:        flex;
+    flex-direction: column;
+    align-items:    center;
+    gap:            2px;
+    background:     rgba(255, 255, 255, 0.03);
+    border:         1px solid rgba(255, 255, 255, 0.09);
+    padding:        6px 14px;
+    flex:           1;
+    max-width:      110px;
+  }
+
+  .chip-label {
+    font-size:      6px;
+    letter-spacing: 2px;
+    color:          rgba(255, 255, 255, 0.45);
+  }
+
+  .chip-value {
+    font-size:   13px;
+    color:       #fff;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  }
+
+  // ── Canvas: scale to fit viewport, never overflow ─────────────────────
+  // The board canvas is 320×640 (1:2 ratio).
+  // We constrain by viewport height and let the aspect-ratio shrink width.
+  .board-wrap {
+    // Available height = viewport - stats bar (~52px) - bottom panels (~110px) - padding/gaps
+    --canvas-h: min(640px, calc(100dvh - 190px));
+    --canvas-w: min(320px, calc(var(--canvas-h) / 2), calc(100vw - 16px));
+
+    width:  var(--canvas-w);
+
+    canvas {
+      width:  100%;
+      height: calc(var(--canvas-w) * 2);
+    }
+  }
+
+  // ── Side panels: horizontal row below the board ───────────────────────
+  .side-panel {
+    flex-direction: row;
+    flex-wrap:      wrap;
+    justify-content: center;
+    width:          100%;
+    gap:            8px;
+  }
+
+  // Hide what's redundant on mobile
+  .desktop-controls { display: none; } // keyboard instructions → pause overlay
+  .desktop-stat     { display: none; } // score/lines/level    → mobile-stats bar
+
+  // Shrink HOLD and NEXT canvas boxes on mobile
+  .hold-box canvas,
+  .panel-box canvas {
+    width:  72px;
+    height: 72px;
+  }
+
+  // ── Floating pause button ─────────────────────────────────────────────
+  .pause-btn { display: flex; align-items: center; justify-content: center; }
+
+  // ── Pause overlay: show touch hint, hide keyboard hint ────────────────
+  .desktop-hint { display: none !important; }
+  .touch-hint   { display: flex !important; }
+}
+
+// ── Touch-device detection (pointer: coarse = finger, no hover) ───────────────
+// Used alongside the width breakpoint so tablets in landscape also get touch hints.
+@media (hover: none) and (pointer: coarse) {
+  .pause-btn    { display: flex; align-items: center; justify-content: center; }
+  .desktop-hint { display: none; }
+  .touch-hint   { display: flex; }
 }

@@ -339,7 +339,7 @@ export class GameComponent implements OnInit, OnDestroy {
     e.preventDefault();
 
     if (this.gameOver) { this.restart(); return; }
-    if (this.paused)   { this.paused = false; return; }
+    if (this.paused)   return; // pause/resume is handled by the HTML overlay button
 
     const t      = e.changedTouches[0];
     const totalDx = t.clientX - this.touchStartX;
@@ -440,6 +440,10 @@ export class GameComponent implements OnInit, OnDestroy {
 
   // ── Game lifecycle ────────────────────────────────────────────────────────
 
+  togglePause(): void {
+    if (!this.gameOver) this.paused = !this.paused;
+  }
+
   restart(): void {
     clearInterval(this.prismaCountdownTimer);
     cancelAnimationFrame(this.animationFrameId);
@@ -490,8 +494,8 @@ export class GameComponent implements OnInit, OnDestroy {
     this.renderPreviews();
 
     if (this.prismaActive) this.renderPrismaOverlay();
-    if (this.gameOver)     this.renderOverlayScreen('GAME OVER', 'ENTER to restart', '#ff0055');
-    if (this.paused)       this.renderOverlayScreen('PAUSED',    'P to resume',       '#00f0f0');
+    if (this.gameOver)     this.renderOverlayScreen('GAME OVER', 'ENTER / TAP to restart', '#ff0055');
+    // PAUSED state is handled by the HTML overlay (.pause-overlay) — no canvas render needed.
   }
 
   private renderGrid(ctx: CanvasRenderingContext2D): void {

@@ -1,14 +1,31 @@
 <div class="layout">
 
-  <!-- Left panel: Hold + Controls -->
-  <aside class="side-panel">
+  <!-- ── Mobile-only compact stats bar ─────────────────────────────────── -->
+  <div class="mobile-stats">
+    <div class="stat-chip">
+      <span class="chip-label">SCORE</span>
+      <span class="chip-value">{{ score | number }}</span>
+    </div>
+    <div class="stat-chip">
+      <span class="chip-label">LEVEL</span>
+      <span class="chip-value">{{ level }}</span>
+    </div>
+    <div class="stat-chip">
+      <span class="chip-label">LINES</span>
+      <span class="chip-value">{{ lines }}</span>
+    </div>
+  </div>
 
-    <div class="panel-box">
+  <!-- ── Left panel: Hold + Controls ──────────────────────────────────── -->
+  <aside class="side-panel left-panel">
+
+    <div class="panel-box hold-box">
       <p class="label">HOLD</p>
       <canvas #holdCanvas width="128" height="128"></canvas>
     </div>
 
-    <div class="panel-box controls keyboard-controls">
+    <!-- Keyboard controls: visible on desktop, hidden on touch devices -->
+    <div class="panel-box controls desktop-controls">
       <p class="label">CONTROLS</p>
       <span>← →&nbsp;&nbsp;Move</span>
       <span>↑&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Rotate</span>
@@ -18,36 +35,55 @@
       <span>P&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Pause</span>
     </div>
 
-    <div class="panel-box controls touch-controls">
-      <p class="label">TOUCH</p>
-      <span>TAP&nbsp;&nbsp;&nbsp;Rotate</span>
-      <span>←→&nbsp;&nbsp;&nbsp;Move</span>
-      <span>↓drag Soft drop</span>
-      <span>↓flick Hard drop</span>
-      <span>↑swipe Hold</span>
-    </div>
-
   </aside>
 
-  <!-- Canvas board -->
+  <!-- ── Game canvas ────────────────────────────────────────────────────── -->
   <div class="board-wrap" [class.prisma-active]="prismaActive">
     <canvas #gameCanvas [width]="320" [height]="640"></canvas>
+
+    <!-- Pause overlay — covers canvas on pause, shows controls for current device -->
+    <div class="pause-overlay" *ngIf="paused">
+      <p class="pause-title">PAUSED</p>
+
+      <div class="pause-controls desktop-hint">
+        <div class="ctrl-row"><span class="key">← →</span><span>Move</span></div>
+        <div class="ctrl-row"><span class="key">↑</span><span>Rotate</span></div>
+        <div class="ctrl-row"><span class="key">↓</span><span>Soft drop</span></div>
+        <div class="ctrl-row"><span class="key">SPACE</span><span>Hard drop</span></div>
+        <div class="ctrl-row"><span class="key">C</span><span>Hold</span></div>
+        <div class="ctrl-row"><span class="key">P</span><span>Resume</span></div>
+      </div>
+
+      <div class="pause-controls touch-hint">
+        <div class="ctrl-row"><span class="key">TAP</span><span>Rotate</span></div>
+        <div class="ctrl-row"><span class="key">← →</span><span>Move</span></div>
+        <div class="ctrl-row"><span class="key">↓ drag</span><span>Soft drop</span></div>
+        <div class="ctrl-row"><span class="key">↓ flick</span><span>Hard drop</span></div>
+        <div class="ctrl-row"><span class="key">↑ swipe</span><span>Hold</span></div>
+      </div>
+
+      <button class="resume-btn" (click)="togglePause()">▶ RESUME</button>
+    </div>
+
+    <!-- Floating pause button — only on touch / mobile -->
+    <button class="pause-btn" (click)="togglePause()" *ngIf="!gameOver">⏸</button>
   </div>
 
-  <!-- Right panel: Stats + Next + Prisma Pulse meter -->
-  <aside class="side-panel">
+  <!-- ── Right panel: Stats + Next + Prisma ────────────────────────────── -->
+  <aside class="side-panel right-panel">
 
-    <div class="panel-box">
+    <!-- Stats boxes: visible on desktop, hidden on mobile (mobile-stats replaces them) -->
+    <div class="panel-box desktop-stat">
       <p class="label">SCORE</p>
       <span class="value">{{ score | number }}</span>
     </div>
 
-    <div class="panel-box">
+    <div class="panel-box desktop-stat">
       <p class="label">LINES</p>
       <span class="value">{{ lines }}</span>
     </div>
 
-    <div class="panel-box">
+    <div class="panel-box desktop-stat">
       <p class="label">LEVEL</p>
       <span class="value">{{ level }}</span>
     </div>
@@ -57,7 +93,6 @@
       <canvas #nextCanvas width="128" height="128"></canvas>
     </div>
 
-    <!-- Prisma Pulse — exclusive feature meter -->
     <div class="panel-box prisma-box" [class.active]="prismaActive">
       <p class="label prisma-label">PRISMA</p>
       <div class="meter-wrap">
