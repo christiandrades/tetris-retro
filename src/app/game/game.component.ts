@@ -107,12 +107,15 @@ export class GameComponent implements OnInit, OnDestroy {
   private lastFrameTime     = 0;
 
   // ── Touch state ───────────────────────────────────────────────────────────
-  private touchStartX     = 0;
-  private touchStartY     = 0;
-  private touchLastX      = 0;
-  private touchLastY      = 0;
-  private touchStartTime  = 0;
-  private touchHasGesture = false;
+  private touchStartX              = 0;
+  private touchStartY              = 0;
+  private touchLastX               = 0;
+  private touchLastY               = 0;
+  private touchStartTime           = 0;
+  private touchHasGesture          = false;
+  // Prevents subsequent touchmove / touchend events from re-locking the piece
+  // that was just spawned after a soft-drop reaches the bottom.
+  private touchLockedInGesture     = false;
 
   // Thresholds (in CSS pixels, device-independent)
   private readonly TOUCH_CELL_PX   = 28; // horizontal pixels per cell move
@@ -179,6 +182,9 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   private lock(): void {
+    // Reseta o acumulador para que o game loop não drope a peça recém-spawnada
+    // imediatamente, independente de onde lock() foi chamado.
+    this.dropAccumulatedMs = 0;
     for (let row = 0; row < this.current.shape.length; row++) {
       for (let col = 0; col < this.current.shape[row].length; col++) {
         if (!this.current.shape[row][col]) continue;
@@ -302,12 +308,13 @@ export class GameComponent implements OnInit, OnDestroy {
   private onTouchStart(e: TouchEvent): void {
     e.preventDefault();
     const t = e.changedTouches[0];
-    this.touchStartX     = t.clientX;
-    this.touchStartY     = t.clientY;
-    this.touchLastX      = t.clientX;
-    this.touchLastY      = t.clientY;
-    this.touchStartTime  = Date.now();
-    this.touchHasGesture = false;
+    this.touchStartX          = t.clientX;
+    this.touchStartY          = t.clientY;
+    this.touchLastX           = t.clientX;
+    this.touchLastY           = t.clientY;
+    this.touchStartTime       = Date.now();
+    this.touchHasGesture      = false;
+    this.touchLockedInGesture = false;
   }
 
   // touchmove: real-time horizontal moves + continuous soft drop while dragging.
@@ -327,8 +334,14 @@ export class GameComponent implements OnInit, OnDestroy {
     }
 
     if (dy >= this.TOUCH_DROP_PX) {
-      if (!this.collides(this.current, 0, 1)) this.current.y++;
-      else this.lock();
+      if (!this.collides(this.current, 0, 1)) {
+        this.current.y++;
+      } else if (!this.touchLockedInGesture) {
+        // Guard: só trava uma vez por gesto — eventos touchmove seguintes
+        // não devem afetar a peça recém-spawnada.
+        this.touchLockedInGesture = true;
+        this.lock();
+      }
       this.touchLastY      = t.clientY;
       this.touchHasGesture = true;
     }
@@ -356,8 +369,9 @@ export class GameComponent implements OnInit, OnDestroy {
     }
 
     // Fast downward flick → hard drop
+    // Ignora se o soft-drop já travou a peça neste mesmo gesto.
     if (absDy > absDx && totalDy > 0 && (totalDy / dt) >= this.HARD_DROP_SPEED) {
-      this.hardDrop();
+      if (!this.touchLockedInGesture) this.hardDrop();
       return;
     }
 
